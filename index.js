@@ -9,6 +9,9 @@ const express = require('express')
 //import cors
 const cors = require('cors')
 
+//bcrypt
+const bcrypt = require('bcrypt')
+
 //create server
 const regServer = express()
 
@@ -18,44 +21,71 @@ regServer.use(cors())
 //json to js object
 regServer.use(express.json())
 
+
+
 const db = mysql.createConnection({
-    host: 'localhost',
-    user: 'root',
-    password: '',
-    database: 'signup'
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME
 })
 
 //signup
-
+const salt = 10;
 regServer.post('/signup', (req, res) => {
     const sql = "INSERT INTO user (name,email,password) Values (?)";
-    const values = [
-        req.body.name,
-        req.body.email,
-        req.body.password
-    ]
-    db.query(sql, [values], (err, data) => {
-        if (err) return res.json(err);
-        return res.json(data);
+    const password = req.body.password
+    bcrypt.hash(password.toString(),salt,(err,hash)=>{
+        if(err){
+            console.log(err);
+        }
+        const values = [
+            req.body.name,
+            req.body.email,
+            hash
+        ]
+        db.query(sql, [values], (err, data) => {
+            if (err) return res.json(err);
+            return res.json(data);
+        })
     })
+   
 })
 
 
 // login
 regServer.post('/login', (req, res) => {
-    const sql = "SELECT * FROM user WHERE email = ? AND password = ?";
-
-    db.query(sql, [req.body.email, req.body.password], (err, data) => {
+    const { email, password } = req.body;
+    const sql = "SELECT * FROM user WHERE email = ?";    
+    db.query(sql, [email], (err, results) => {
         if (err) {
-            return res.json({ success: false, error: err });
+            console.error('Database error:', err);
+            return res.status(500).json({ success: false, error: 'Internal server error' });
         }
-        if (data.length > 0) {
-            return res.json({ success: true });
-        } else {
-            return res.json({ success: false, message: 'Incorrect email or password' });
+        
+        if (results.length === 0) {
+            return res.status(401).json({ success: false, error: 'Incorrect email or password' });
         }
+
+        const user = results[0];
+        const hashedPassword = user.password;
+
+        bcrypt.compare(password, hashedPassword, (err, result) => {
+            if (err) {
+                console.error('bcrypt error:', err);
+                return res.status(500).json({ success: false, error: 'Internal server error' });
+            }
+
+            if (result) {
+                return res.json({ success: true });
+            } else {
+                return res.status(401).json({ success: false, error: 'Incorrect email or password' });
+            }
+        });
     });
 });
+
+
 
 //student details
 regServer.post('/addstudent', (req, res) => {
@@ -117,10 +147,6 @@ regServer.delete('/delete/:id',(req,res)=>{
         
     })
 })
-
-
-
-
 
 //port
 const PORT = 4000 || process.env
